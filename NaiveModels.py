@@ -4,15 +4,67 @@ import random
 from sklearn.metrics import accuracy_score, f1_score
 from tqdm import tqdm
 from operator import itemgetter
+import numpy as np
+from sklearn.decomposition import TruncatedSVD
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.sparse import lil_matrix
 
 class NaiveModels:
 
     def __init__(self, compareRandom=False):
         self.dataHandler = DataManager()
-        self.train, self.test = self.dataHandler.loadPlaylists(percentToLoad=0.2)
+        self.train, self.test = self.dataHandler.loadPlaylists(percentToLoad=0.01)
         self.compareRandom = compareRandom
         if compareRandom:
             self.randomBaseline()
+        return
+
+    def adjacencyEmbed(self):
+        print("~~~~~~~ TRAINING ADJACENCY MODEL ~~~~~~~")
+        aM = lil_matrix((self.dataHandler.trackSet.shape[0], self.dataHandler.trackSet.shape[0]))
+        trackIndexLookUp = {k: v for v, k in enumerate(self.dataHandler.trackSet)}
+        pbar = tqdm(total=self.train.shape[0] + self.test['data'].shape[0])
+        for i in range(self.train.shape[0] - 1):
+            a1 = trackIndexLookUp[self.train[i]['track_uri']]
+            a2 = trackIndexLookUp[self.train[i + 1]['track_uri']]
+            aM[a1, a2] += 1
+            aM[a2, a1] += 1
+            pbar.update(1)
+        for i in range(self.test['data'].shape[0] - 1):
+            pbar.update(1)
+            if self.test['data'][i] != 'TRACK REMOVED' and self.test['data'][i + 1] != 'TRACK REMOVED':
+                a1 = trackIndexLookUp[self.test['data'][i]['track_uri']]
+                a2 = trackIndexLookUp[self.test['data'][i + 1]['track_uri']]
+                aM[a1, a2] += 1
+                aM[a2, a1] += 1
+        pbar.close()
+        print("~~~~~~~ fitting svd ~~~~~~~")
+        svd = TruncatedSVD(n_components=2048, algorithm='arpack')
+        aM_SVD = svd.fit_transform(aM)
+        aM_Similarity = cosine_similarity(aM_SVD, aM_SVD)
+        predictions = []
+        print("~~~~~~~ generating predictions ~~~~~~~")
+        pbar = tqdm(total=self.test['data'].shape[0])
+        for i in range(self.test['data'].shape[0]):
+            pbar.update(1)
+            if self.test['data'][i] == 'TRACK REMOVED':
+                if self.test['data'][i - 1] == 'TRACK REMOVED' and self.test['data'][i + 1] == 'TRACK REMOVED':
+                    predictions.append("-1")
+                elif i == 0 or self.test['data'][i - 1] == 'TRACK REMOVED':
+                    next = self.test['data'][i + 1]['track_uri']
+                    predictions.append(self.dataHandler.trackSet[aM_Similarity[trackIndexLookUp[next]].argmax()])
+                elif i == self.test['data'].shape[0] - 1 or self.test['data'][i + 1] == 'TRACK REMOVED':
+                    prev = self.test['data'][i - 1]['track_uri']
+                    predictions.append(self.dataHandler.trackSet[aM_Similarity[trackIndexLookUp[prev]].argmax()])
+                else:
+                    prev = self.test['data'][i - 1]['track_uri']
+                    next = self.test['data'][i + 1]['track_uri']
+                    if np.amax(aM_Similarity[trackIndexLookUp[prev]]) > np.amax(aM_Similarity[trackIndexLookUp[next]]):
+                        predictions.append(self.dataHandler.trackSet[aM_Similarity[trackIndexLookUp[prev]].argmax()])
+                    else:
+                        predictions.append(self.dataHandler.trackSet[aM_Similarity[trackIndexLookUp[next]].argmax()])
+        pbar.close()
+        self.evaluate(predictions, self.test['target'], 'ADJACENCY SIMILARITY')
         return
 
     def bigram(self):
@@ -54,5 +106,6 @@ class NaiveModels:
         return
 
 if __name__ == '__main__':
-    n = NaiveModels(compareRandom=True)
+    n = NaiveModels(compareRandom=False)
+    # n.adjacencyEmbed()
     n.bigram()

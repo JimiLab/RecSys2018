@@ -3,7 +3,7 @@ import math
 import json
 from tqdm import tqdm
 import random
-from sklearn.preprocessing import MultiLabelBinarizer
+import numpy as np
 
 class DataManager:
 
@@ -12,6 +12,7 @@ class DataManager:
         self.dataCache = dict()
         self.datafiles = os.listdir(self.DATA_DIR)
         self.removeProbability = .1
+        self.trackSet = []
         return
 
     # Loads data files sequentially. Should add random option in the future
@@ -44,6 +45,7 @@ class DataManager:
                             testSet['data'].append({k: track[k] for k in fields})
                     else:
                         trainSet.append({k: track[k] for k in fields})
+                    self.trackSet.append(track['track_uri'])
                 if loadTest:
                     testSet['data'].append({'track_uri': 'END OF PLAYLIST'})
                 else:
@@ -54,12 +56,16 @@ class DataManager:
                 if not numTrainPlaylists:
                     loadTest = 1
                 if not numPlaylists:
-                    self.dataCache = {"train": trainSet, "test": testSet}
-                    pbar.close()
-                    return trainSet, testSet
+                   break
+        trainSet = np.asarray(trainSet)
+        testSet['data'] = np.asarray(testSet['data'])
+        testSet['target'] = np.asarray(testSet['target'])
         pbar.close()
         self.dataCache = {"train": trainSet, "test": testSet}
-        return trainSet, testSet
+        self.trackSet.append("START OF PLAYLIST")
+        self.trackSet.append("END OF PLAYLIST")
+        self.trackSet = np.asarray(list(set(self.trackSet)))
+        return np.asarray(trainSet), testSet
 
 
 if __name__ == '__main__':
