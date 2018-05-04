@@ -156,9 +156,18 @@ class DataManager:
         p, r = self.precision_and_recall_at_k(ground_truth, prediction, k)
         return p
 
-    def ndcg(self, ground_truth, prediction):
-        pass
+    def song_clicks_metric(self, ranking):
+        """
+        Spotify p
+        :param ranking:
+        :return:
+        """
 
+        if 1 in ranking:
+            first_idx = ranking.index(1)
+
+            return math.floor(first_idx/10)
+        return 51
 
     def predict_playlists(self,svd_components=64, missing_track_rate = .2):
         print("\nStarting playlist prediction...")
@@ -170,6 +179,7 @@ class DataManager:
         recall_500 = list()
         r_prec = list()
         ndcg = list()
+        song_click = list()
 
         num_playlists = min(self.X_test.shape[0],1000)
 
@@ -210,16 +220,18 @@ class DataManager:
                 # Pick up from here
                 ndcg_val = ndcg_at_k(gt_vec,len(test_rank_list), 0)
                 ndcg.append(ndcg_val)
+                song_click.append(self.song_clicks_metric(gt_vec))
                 r_prec.append(self.r_precision(gt, test_rank))
                 recall_500.append(self.precision_and_recall_at_k(gt, test_rank)[1])
 
 
                                                                                   #  ignores test set songs not found in training set
         print()
-        print("Average Recall @ ", num_predictions,":", np.average(recall_500))
-        print("Average R Precision:", np.average(r_prec))
-        print("Average NDGC:", np.average(ndcg))
-        print("Number Trials: ", len(recall_500))
+        #print("Average Recall @ ", num_predictions,":", np.average(recall_500))
+        print("Average R Prec:\t", np.round(np.average(r_prec), decimals=3))
+        print("Average NDGC:\t",   np.round(np.average(ndcg),decimals=3))
+        print("Average Clicks\t",  np.round(np.average(song_click),decimals=3))
+        print("Number Trials:\t", len(recall_500))
 
 
 
@@ -231,8 +243,8 @@ class DataManager:
 if __name__ == '__main__':
 
     path = os.path.join(os.getcwd(), 'data/mpd.v1/data/')
-    p_file = os.path.join(os.getcwd(),'data/pickles/MPD_40K.pkl')
-    generate_data = True
+    p_file = os.path.join(os.getcwd(),'data/pickles/MPD_20K.pkl')
+    generate_data = False
 
 
     if generate_data:
@@ -243,8 +255,8 @@ if __name__ == '__main__':
     else:
         d = joblib.load(p_file)
 
-    print("Train Set Size:", len(d.test))
-    for nc in [16, 64, 256]:
+    print("Train Set Size:", len(d.train))
+    for nc in [128]:
        print("\nNumber of SVD Components", nc,"\t", end="")
        d.predict_playlists(svd_components=nc)
     #d.predict_playlists(svd_components=64)
