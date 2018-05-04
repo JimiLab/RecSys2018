@@ -9,7 +9,8 @@ import numpy as np
 from sklearn.externals import joblib
 from scipy.sparse import csc_matrix, lil_matrix
 from sklearn.decomposition import TruncatedSVD
-
+from sklearn import metrics
+from rank_metrics import ndcg_at_k
 
 
 class DataManager:
@@ -131,17 +132,52 @@ class DataManager:
                 if tid != -1:
                     self.X_test[pid, tid] = 1
 
+    def precision_and_recall_at_k(self, ground_truth, prediction, k=-1):
+        """
+
+        :param ground_truth:
+        :param prediction:
+        :param k: how far down the ranked list we look, set to -1 (default) for all of the predictions
+        :return:
+        """
+
+        if (k == -1):
+            k = len(prediction)
+        prediction = prediction[0:k]
+
+        numer =  len(set(ground_truth).intersection(set(prediction)))
+        prec = numer / k
+        recall = numer / len(ground_truth)
+        return prec, recall
+
+
+    def r_precision(self, ground_truth, prediction):
+        k = len(ground_truth)
+        p, r = self.precision_and_recall_at_k(ground_truth, prediction, k)
+        return p
+
+    def ndcg(self, ground_truth, prediction):
+        pass
+
 
     def predict_playlists(self,svd_components=64, missing_track_rate = .2):
+        print("\nStarting playlist prediction...")
 
         num_predictions = 500
         svd = TruncatedSVD(n_components=svd_components)
         svd.fit(self.X)
 
         recall_500 = list()
+        r_prec = list()
+        ndcg = list()
 
-        for i in range(self.X_test.shape[0]):
+        num_playlists = min(self.X_test.shape[0],1000)
+
+        for i in range(num_playlists):
+            if i % 100 == 0:
+                print(i," ", end="")
             test_vec = self.X_test[i, :]
+            test_len = len(self.test[i])
             nz_idx = test_vec.nonzero()[1]
             num_missing = math.ceil(len(nz_idx)*(missing_track_rate))
             np.random.shuffle(nz_idx)
@@ -159,19 +195,31 @@ class DataManager:
 
             test_rank = np.argsort(-1*test_vec_hat, axis=1)[0,0:num_predictions]
 
-            cnt = 0
-            for j in range(num_predictions):
-                v = test_rank[j]
-                if v in missing_tracks:
-                    #print("Found a good one:", i, v)
-                    cnt += 1
-                if v in non_missing_tracks:
-                    print("Duplicate in non missing track value",i,v)
-            #print("Number of good ones:", cnt, " out of ", len(missing_tracks))
             if len(missing_tracks) > 0:
-                recall_500.append((cnt)/len(missing_tracks))
 
-        print("Average Recall @ 500:", np.average(recall_500))
+                extend_amt = math.ceil(test_len*missing_track_rate) - num_missing
+                gt = list(missing_tracks)
+                gt.extend([-1]*extend_amt)
+
+                gt_vec = [0]*num_predictions
+
+                test_rank_list = list(test_rank)
+                for v in missing_tracks:
+                    if v in test_rank_list:
+                        gt_vec[test_rank_list.index(v)] = 1
+                # Pick up from here
+                ndcg_val = ndcg_at_k(gt_vec,len(test_rank_list), 0)
+                ndcg.append(ndcg_val)
+                r_prec.append(self.r_precision(gt, test_rank))
+                recall_500.append(self.precision_and_recall_at_k(gt, test_rank)[1])
+
+
+                                                                                  #  ignores test set songs not found in training set
+        print()
+        print("Average Recall @ ", num_predictions,":", np.average(recall_500))
+        print("Average R Precision:", np.average(r_prec))
+        print("Average NDGC:", np.average(ndcg))
+        print("Number Trials: ", len(recall_500))
 
 
 
@@ -183,21 +231,22 @@ class DataManager:
 if __name__ == '__main__':
 
     path = os.path.join(os.getcwd(), 'data/mpd.v1/data/')
-    p_file = os.path.join(os.getcwd(),'data/pickles/MPD_1K.pkl')
-    generate_data = False
+    p_file = os.path.join(os.getcwd(),'data/pickles/MPD_40K.pkl')
+    generate_data = True
 
 
     if generate_data:
-        d = DataManager(path, max_number_playlists=1000)
+        d = DataManager(path, max_number_playlists=40000, train_test_split=0.9)
         d.load_playlist_data()
         d.create_matrix()
         d.pickle_data(p_file)
     else:
         d = joblib.load(p_file)
 
-    #for nc in [2,4,8,16,32,64,128,256,512, 1024]:
-    #   print("Number of SVD Components", nc,"\t", end="")
-    #   d.predict_playlists(svd_components=nc)
-    d.predict_playlists(svd_components=64)
+    print("Train Set Size:", len(d.test))
+    for nc in [16, 64, 256]:
+       print("\nNumber of SVD Components", nc,"\t", end="")
+       d.predict_playlists(svd_components=nc)
+    #d.predict_playlists(svd_components=64)
 
     pass
