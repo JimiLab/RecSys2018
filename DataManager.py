@@ -30,6 +30,7 @@ class DataManager:
         self.challenge_size = -1
         self.uri_to_id = dict()
         self.id_to_uri = dict()
+        self.track_count = list()
 
 
 
@@ -95,10 +96,12 @@ class DataManager:
                             self.uri_to_id[track_uri] = tid
                             self.id_to_uri[tid] = (track['track_uri'], track['track_name'],
                                                    track['artist_uri'], track['artist_name'])
+                            self.track_count.append(0)
                             tid += 1
 
                         track_id = self.uri_to_id[track_uri]
                         self.train[train_pid].append(track_id)
+                        self.track_count[track_id] += 1
 
                     else: #test playlist - don't add track_uri if it is only ever encountered with from test tracks
                         test_playlist[test_pid].append(track_uri)
@@ -131,22 +134,27 @@ class DataManager:
         prefix_len = len("spotify:track:")
 
         cid = 0
+        self.pid_to_spotify_pid = dict()
 
         pbar = tqdm(total=10000)
         pbar.write('~~~~~~~ LOADING PLAYLIST DATA ~~~~~~~')
 
         for playlist in data['playlists']:
+            self.pid_to_spotify_pid[cid] = playlist['pid']
+            self.challenge[cid] = list()
             for track in playlist['tracks']:
                 track_uri = track['track_uri']
                 track_uri = track_uri[prefix_len:]
 
                 if track_uri not in self.uri_to_id.keys():
-                    self.test[cid].append(-1)
+                    self.challenge[cid].append(-1)
                 else:
-                    self.test[cid].append(self.uri_to_id[track_uri])
+                    self.challenge[cid].append(self.uri_to_id[track_uri])
 
             cid += 1
             pbar.update(1)
+        self.challenge_size = len(self.challenge)
+        pbar.close()
 
 
 
@@ -166,7 +174,7 @@ class DataManager:
     def create_test_matrix(self):
         num_rows = len(self.test)
         num_cols = len(self.id_to_uri)
-        self.X_test = lil_matrix((len(self.test), num_cols), dtype=np.int8)
+        self.X_test = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for pid, playlist in self.test.items():
             for tid in playlist:
                 if tid != -1:
@@ -174,13 +182,21 @@ class DataManager:
 
 
     def create_challenge_matrix(self):
-        num_rows = len(self.test)
+        num_rows = len(self.challenge)
         num_cols = len(self.id_to_uri)
-        self.X_challenge = lil_matrix((len(self.test), num_cols), dtype=np.int8)
+        self.X_challenge = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for pid, playlist in self.challenge.items():
             for tid in playlist:
                 if tid != -1:
-                    self.X_test[pid, tid] = 1
+                    self.X_challenge[pid, tid] = 1
+
+
+    def calculate_popularity(self):
+        self.popularity_vec = np.array(self.track_count) / self.train_size
+
+
+
+
 
     def create_matrices(self, include_challenge_matrix=False):
         self.create_train_matrix()
@@ -225,6 +241,7 @@ def load_data(train_size =10000, test_size=2000, load_challenge=False, create_ma
         if create_matrices:
             print("Calculate Numpy Matrices")
             d.create_matrices()
+        d.calculate_popularity()
         print("Pickle Data into file: "+pickle_file)
         d.pickle_data(pickle_file)
     else:
@@ -237,10 +254,10 @@ def load_data(train_size =10000, test_size=2000, load_challenge=False, create_ma
 if __name__ == '__main__':
 
     """ Parameters for Loading Data """
-    generate_data = False   # True - load data for given parameter settings
+    generate_data = True   # True - load data for given parameter settings
                             # False - only load data if pickle file doesn't already exist
-    train_size = 10000      # number of playlists for training
-    test_size = 2000        # number of playlists for testing
+    train_size = 2000      # number of playlists for training
+    test_size = 1000        # number of playlists for testing
     load_challenge = False  # loads challenge data when creating a submission to contest
     create_matrices = True  # creates numpy matrices for train, test, and (possibly) challenge data
 
