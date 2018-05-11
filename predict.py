@@ -1,11 +1,13 @@
 import math
 from rank_metrics import ndcg_at_k
 
-class predict:
+
+class Predict:
 
     def __init__(self):
         pass
 
+    @staticmethod
     def precision_and_recall_at_k(self, ground_truth, prediction, k=-1):
         """
 
@@ -15,7 +17,7 @@ class predict:
         :return:
         """
 
-        if (k == -1):
+        if k == -1:
             k = len(prediction)
         prediction = prediction[0:k]
 
@@ -24,11 +26,13 @@ class predict:
         recall = numer / len(ground_truth)
         return prec, recall
 
+    @staticmethod
     def r_precision(self, ground_truth, prediction):
         k = len(ground_truth)
         p, r = self.precision_and_recall_at_k(ground_truth, prediction, k)
         return p
 
+    @staticmethod
     def song_clicks_metric(self, ranking):
         """
         Spotify p
@@ -42,6 +46,7 @@ class predict:
             return math.floor(first_idx / 10)
         return 51
 
+    @staticmethod
     def ncdg(self, ranking, k):
         return ndcg_at_k(ranking, k, 0)
 
