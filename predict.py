@@ -8,7 +8,7 @@ class Predict:
         pass
 
     @staticmethod
-    def precision_and_recall_at_k(self, ground_truth, prediction, k=-1):
+    def precision_and_recall_at_k(ground_truth, prediction, k=-1):
         """
 
         :param ground_truth:
@@ -33,7 +33,7 @@ class Predict:
         return p
 
     @staticmethod
-    def song_clicks_metric(self, ranking):
+    def song_clicks_metric(ranking):
         """
         Spotify p
         :param ranking:
@@ -47,7 +47,7 @@ class Predict:
         return 51
 
     @staticmethod
-    def ncdg(self, ranking, k):
+    def ncdg(ranking, k):
         return ndcg_at_k(ranking, k, 0)
 
 

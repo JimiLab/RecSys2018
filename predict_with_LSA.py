@@ -1,6 +1,6 @@
 
 from sklearn.decomposition import TruncatedSVD
-from predict import predict
+from predict import Predict
 from DataManager import load_data
 import math
 import numpy as np
@@ -8,11 +8,11 @@ from tqdm import tqdm
 import os
 
 
-class PredictWithLSA(predict):
+class PredictWithLSA(Predict):
 
     def __init__(self, data, num_components=64, missing_track_rate=0.2):
         # Call init on super class
-        predict.__init__(self)
+        Predict.__init__(self)
         self.d = data  # DataManager Object
         self.num_components = num_components
         self.missing_track_rate = missing_track_rate
