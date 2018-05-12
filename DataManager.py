@@ -273,12 +273,15 @@ class DataManager:
         num_subtest = len(self.test)
         num_rows = len(self.test[0])
         num_cols = len(self.id_to_uri)
-        self.X_test = lil_matrix((num_subtest, num_rows, num_cols), dtype=np.int8)
+        self.X_test = list()
         for s in range(num_subtest):
+            mat = lil_matrix((num_rows, num_cols), dtype=np.int8)
             for p in range(num_rows):
                 for t in self.test[s][p]:
                     if t != -1:
-                        self.X_test[s, p, t] = 1
+                        mat[ p, t] = 1
+            self.X_test.append(mat)
+        return
 
     def create_challenge_matrix(self):
         num_rows = len(self.challenge)
