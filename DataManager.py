@@ -9,6 +9,8 @@ import numpy as np
 from sklearn.externals import joblib
 from scipy.sparse import lil_matrix
 
+import re
+
 
 class DataManager:
     """
@@ -23,19 +25,120 @@ class DataManager:
         self.CHALLENGE_FILE = challenge_file
         self.data_cache = dict()
         self.train_size = train_size
-        self.train = defaultdict(list)
-        self.test_size = test_size
-        self.test = defaultdict(list)           # tracks not in training set will have id = -1
-        self.challenge = defaultdict(list)
-        self.challenge_size = -1
+        self.train = []
+        self.train_title = []
+        self.train_description = []
+
+        self.test_size = math.ceil(test_size/10.0)*10 # needs to be a multiple of 10
+        self.subtest_size = self.test_size /10
+        self.test = []              # all test lists are of size 10 for each of the 10 subchallanges
+        self.test_uri = []
+        self.test_truth = []
+        self.test_truth_uri = []
+        self.test_title = []
+
+        for i in range(10):
+            self.test.append([])
+            self.test_uri.append([])
+            self.test_truth.append([])
+            self.test_truth_uri.append([])
+            self.test_title.append([])
+
+
+
+        self.subtest_name = ["title only", "title / first",
+                               "title / first 5", "first 5",
+                               "title / first 10", "first 10 ",
+                               "title / first 25", "title / random 25 ",
+                               "title / first 100", "title / random 100" ]
+        self.subtest_setup = [(True, 0, True),  (True, 1, True),
+                                (True, 5, True),  (False, 5, True),
+                                (True, 10, True), (False, 10, True),
+                                (True, 25, True), (True, 25, False),
+                                (True, 100, True), (True, 100, False)] # (has_title, num_tracks, first_or_random)
+
+        self.challenge = []
+        self.challenge_title = []
         self.uri_to_id = dict()
         self.id_to_uri = dict()
-        self.track_count = list()
-        self.pid_to_spotify_pid = dict()
+        self.track_frequency = []
+        self.pid_to_spotify_pid = []
         self.X = None
         self.X_test = None
-        self.popularity_vec = None
         self.X_challenge = None
+        self.popularity_vec = None
+        self.prefix = "spotify:track:"
+
+    def normalize_name(self, name):
+        name = name.lower()
+        name = re.sub(r"[.,\/#!$%\^\*;:{}=\_`~()@]", ' ', name)
+        name = re.sub(r'\s+', ' ', name).strip()
+        return name
+
+    def _add_train_playlist(self, playlist):
+
+        pid = len(self.train)
+        self.train.append([])
+        self.train_title.append(self.normalize_name(playlist["name"]))
+        if "description" in playlist:
+            self.train_description.append(self.normalize_name(playlist["description"]))
+
+
+
+        for track in playlist['tracks']:
+            track_uri = track['track_uri']
+            track_uri = track_uri[len(self.prefix):]
+
+            # new track that has never been encountered before
+            if track_uri not in self.uri_to_id.keys():
+                tid = len(self.id_to_uri)
+                self.uri_to_id[track_uri] = tid
+                self.id_to_uri[tid] = (track['track_uri'], track['track_name'],
+                                           track['artist_uri'], track['artist_name'])
+                self.track_frequency.append(0)
+
+            track_id = self.uri_to_id[track_uri]
+            self.train[pid].append(track_id)
+            self.track_frequency[track_id] += 1
+
+
+
+
+
+    def _add_test_playlist(self, playlist):
+
+        subtest = random.randint(0,9)
+
+        # if subtest is already full
+        if len(self.test_uri[subtest]) >= self.subtest_size:
+            return
+
+        num_tracks = playlist["num_tracks"]
+
+        # not enough tracks to hid any tracks
+        if num_tracks <= self.subtest_setup[subtest][1]:
+            return
+
+        pid = len(self.test[subtest])
+        self.test_title[subtest].append(self.normalize_name(playlist["name"]))
+
+        uri_list = list()
+        for track in playlist['tracks']:
+            track_uri = track['track_uri']
+            track_uri = track_uri[len(self.prefix):]
+            uri_list.append(track_uri)
+
+        #random tracks from playlist
+        if self.subtest_setup[subtest][2] == False:
+            random.shuffle(uri_list)
+
+        # number of tracks in the playlist
+        split = self.subtest_setup[subtest][1]
+
+        self.test_uri[subtest].append(uri_list[0:split])
+        self.test_truth_uri[subtest].append(uri_list[split:])
+        pass
+
 
     def load_playlist_data(self):
         """
@@ -57,98 +160,98 @@ class DataManager:
 
         num_files_to_load = 1000
         # num_files_to_load = math.ceil(total_size / 1000)+1
-        train_pid = 0
-        test_pid = 0
-        test_playlist = defaultdict(list)
-        tid = 0
 
-        prefix_len = len("spotify:track:")
+        train_done = False
+        test_done = False
 
         pbar = tqdm(total=self.train_size)
         pbar.write('~~~~~~~ LOADING PLAYLIST DATA ~~~~~~~')
 
         for file in os.listdir(self.DATA_DIR)[:num_files_to_load]:
-            if train_pid >= self.train_size and test_pid >= self.test_size:
+
+            if train_done and test_done:
                 break
+
             if not file.startswith("mpd.slice"):
                 continue
+
             data = json.load(open(self.DATA_DIR + file))
+
             for playlist in data['playlists']:
 
                 # break if we have enough data
+                if train_done and test_done:
+                    break
 
                 is_train = random.uniform(0, 1) < train_test_ratio
 
-                if train_pid >= self.train_size and test_pid >= self.test_size:
-                    break
-
                 # skip playlist if we have already loaded enough of them for either train or test
-                if is_train and train_pid >= self.train_size:
+                if is_train and train_done:
                     continue
-                if not is_train and test_pid >= self.test_size:
+                if not is_train and test_done:
                     continue
-
-                for track in playlist['tracks']:
-                    track_uri = track['track_uri']
-                    track_uri = track_uri[prefix_len:]
-
-                    if is_train:
-                        # new track that has never been encountered before
-                        if track_uri not in self.uri_to_id.keys():
-                            self.uri_to_id[track_uri] = tid
-                            self.id_to_uri[tid] = (track['track_uri'], track['track_name'],
-                                                   track['artist_uri'], track['artist_name'])
-                            self.track_count.append(0)
-                            tid += 1
-
-                        track_id = self.uri_to_id[track_uri]
-                        self.train[train_pid].append(track_id)
-                        self.track_count[track_id] += 1
-
-                    else:  # test playlist - don't add track_uri if it is only ever encountered with from test tracks
-                        test_playlist[test_pid].append(track_uri)
 
                 if is_train:
-                    train_pid += 1
+                    self._add_train_playlist(playlist)
+
+                    train_done = len(self.train) >= self.train_size
+
                 else:
-                    test_pid += 1
+                    self._add_test_playlist(playlist)
+                    test_done = True
+                    for i in range(10):
+                        if len(self.test_uri[i]) < self.subtest_size:
+                            test_done = False
+                            break
 
                 pbar.update(1)
 
         pbar.close()
 
+
         # resolve test playlist against training track corpus
         #  set unknown tracks to have id = -1
-        for test_pid, tracks in test_playlist.items():
-            for uri in tracks:
-                if uri not in self.uri_to_id.keys():
-                    self.test[test_pid].append(-1)
-                else:
-                    self.test[test_pid].append(self.uri_to_id[uri])
+        for s in range(10):
+            for p in range(len(self.test_uri[s])):
+                self.test[s].append([])
+                self.test_truth[s].append([])
+                for uri in self.test_uri[s][p]:
+                   if uri not in self.uri_to_id.keys():
+                       self.test[s][p].append(-1)
+                   else:
+                       self.test[s][p].append(self.uri_to_id[uri])
+
+                for uri in self.test_truth_uri[s][p]:
+                   if uri not in self.uri_to_id.keys():
+                       self.test_truth[s][p].append(-1)
+                   else:
+                       self.test_truth[s][p].append(self.uri_to_id[uri])
         return
 
     def load_challenge_data(self):
         data = json.load(open(self.CHALLENGE_FILE))
-        prefix_len = len("spotify:track:")
-
-        cid = 0
 
         pbar = tqdm(total=10000)
         pbar.write('~~~~~~~ LOADING PLAYLIST DATA ~~~~~~~')
 
         for playlist in data['playlists']:
-            self.pid_to_spotify_pid[cid] = playlist['pid']
-            self.challenge[cid] = list()
+            self.pid_to_spotify_pid.append(playlist['pid'])
+            if 'name' in playlist:
+                self.challenge_title.append(self.normalize_name(playlist['name']))
+            else:
+                self.challenge_title.append("")
+            track_ids = list()
             for track in playlist['tracks']:
                 track_uri = track['track_uri']
-                track_uri = track_uri[prefix_len:]
+                track_uri = track_uri[len(self.prefix):]
 
                 if track_uri not in self.uri_to_id.keys():
-                    self.challenge[cid].append(-1)
+                    track_ids.append(-1)
                 else:
-                    self.challenge[cid].append(self.uri_to_id[track_uri])
+                    track_ids.append(self.uri_to_id[track_uri])
 
-            cid += 1
+            self.challenge.append(track_ids)
+
             pbar.update(1)
         self.challenge_size = len(self.challenge)
         pbar.close()
@@ -162,36 +265,39 @@ class DataManager:
         num_cols = len(self.id_to_uri)
 
         self.X = lil_matrix((num_rows, num_cols), dtype=np.int8)
-        for pid, playlist in self.train.items():
-            for tid in playlist:
-                self.X[pid, tid] = 1
+        for p in range(num_rows):
+            for t in self.train[p]:
+                self.X[p, t] = 1
 
     def create_test_matrix(self):
-        num_rows = len(self.test)
+        num_subtest = len(self.test)
+        num_rows = len(self.test[0])
         num_cols = len(self.id_to_uri)
-        self.X_test = lil_matrix((num_rows, num_cols), dtype=np.int8)
-        for pid, playlist in self.test.items():
-            for tid in playlist:
-                if tid != -1:
-                    self.X_test[pid, tid] = 1
+        self.X_test = lil_matrix((num_subtest, num_rows, num_cols), dtype=np.int8)
+        for s in range(num_subtest):
+            for p in range(num_rows):
+                for t in self.test[s][p]:
+                    if t != -1:
+                        self.X_test[s, p, t] = 1
 
     def create_challenge_matrix(self):
         num_rows = len(self.challenge)
         num_cols = len(self.id_to_uri)
         self.X_challenge = lil_matrix((num_rows, num_cols), dtype=np.int8)
-        for pid, playlist in self.challenge.items():
-            for tid in playlist:
-                if tid != -1:
-                    self.X_challenge[pid, tid] = 1
+        for p in range(num_rows):
+            for t in self.challenge[p]:
+                if t != -1:
+                    self.X_challenge[p, t] = 1
 
     def calculate_popularity(self):
-        self.popularity_vec = np.array(self.track_count) / self.train_size
+        self.popularity_vec = np.array(self.track_frequency) / self.train_size
 
     def create_matrices(self):
         self.create_train_matrix()
         self.create_test_matrix()
         if self.CHALLENGE_FILE is not None:
             self.create_challenge_matrix()
+
 
 # END OF CLASS
 
@@ -242,10 +348,10 @@ if __name__ == '__main__':
 
     """ Parameters for Loading Data """
     generate_data_arg = True    # True - load data for given parameter settings
-    #                         False - only load data if pickle file doesn't already exist
-    train_size_arg = 2000       # number of playlists for training
+    #                             False - only load data if pickle file doesn't already exist
+    train_size_arg = 1000       # number of playlists for training
     test_size_arg = 1000        # number of playlists for testing
-    load_challenge_arg = False  # loads challenge data when creating a submission to contest
+    load_challenge_arg = True  # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge data
 
     data_in = load_data(train_size_arg, test_size_arg, load_challenge_arg, create_matrices_arg, generate_data_arg)
