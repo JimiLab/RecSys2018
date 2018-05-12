@@ -154,7 +154,9 @@ class DataManager:
         pbar.close()
 
     def pickle_data(self, filename):
-        joblib.dump(self, filename)
+        # Use file handle to ensure file exists upon serialization
+        with open(filename, 'wb') as file:
+            joblib.dump(self, file)
 
     def create_train_matrix(self):
 
@@ -242,7 +244,7 @@ if __name__ == '__main__':
 
     """ Parameters for Loading Data """
     generate_data_arg = True    # True - load data for given parameter settings
-    #                         False - only load data if pickle file doesn't already exist
+    #                             False - only load data if pickle file doesn't already exist
     train_size_arg = 2000       # number of playlists for training
     test_size_arg = 1000        # number of playlists for testing
     load_challenge_arg = False  # loads challenge data when creating a submission to contest

@@ -1,6 +1,6 @@
 
 from sklearn.decomposition import TruncatedSVD
-from predict import Predict
+from predict import *
 from DataManager import load_data
 import math
 import numpy as np
@@ -8,11 +8,9 @@ from tqdm import tqdm
 import os
 
 
-class PredictWithLSA(Predict):
+class PredictWithLSA:
 
     def __init__(self, data, num_components=64, missing_track_rate=0.2):
-        # Call init on super class
-        Predict.__init__(self)
         self.d = data  # DataManager Object
         self.num_components = num_components
         self.missing_track_rate = missing_track_rate
@@ -41,12 +39,12 @@ class PredictWithLSA(Predict):
         pbar.write('~~~~~~~ Predicting Playlists ~~~~~~~')
 
         for i in range(num_playlists):
-            test_vec = self.d.X_test[i, :]
+            test_vec = self.d.X_test[i, :]  # The current test playlist
             test_len = len(self.d.test[i])
-            nz_idx = test_vec.nonzero()[1]
-            num_missing = math.ceil(len(nz_idx) * self.missing_track_rate)
+            nz_idx = test_vec.nonzero()[1]  # List of indices of nonzero entries
+            num_missing = math.ceil(len(nz_idx) * self.missing_track_rate)  # Num of missing tracks in current playlist
             np.random.shuffle(nz_idx)
-            missing_tracks = nz_idx[0:num_missing]
+            missing_tracks = nz_idx[0:num_missing]  # Choose which tracks to remove
             non_missing_tracks = nz_idx[num_missing:]
 
             # remove missing tracks before embedding
@@ -58,6 +56,7 @@ class PredictWithLSA(Predict):
             # make sure non-missing tracks are not included in the ranking
             test_vec_hat[0, non_missing_tracks] = -99999999
 
+            # Weight dimensions by popularity weight
             test_vec_hat = (1 - popularity_weight) * test_vec_hat + popularity_weight * self.d.popularity_vec
 
             test_rank = np.argsort(-1 * test_vec_hat, axis=1)[0, 0:self.num_predictions]
@@ -65,8 +64,8 @@ class PredictWithLSA(Predict):
             if len(missing_tracks) > 0:
 
                 extend_amt = int(math.ceil(test_len * self.missing_track_rate) - num_missing)
-                gt = list(missing_tracks)
-                gt.extend([-1] * extend_amt)
+                ground_truth = list(missing_tracks)
+                ground_truth.extend([-1] * extend_amt)
 
                 gt_vec = [0] * self.num_predictions
 
@@ -75,11 +74,11 @@ class PredictWithLSA(Predict):
                     if v in test_rank_list:
                         gt_vec[test_rank_list.index(v)] = 1
                 # Pick up from here
-                ndcg_val = self.ncdg(gt_vec, self.num_predictions)  # ndcg_at_k(gt_vec, len(test_rank_list), 0)
+                ndcg_val = ncdg(gt_vec, self.num_predictions)  # ndcg_at_k(gt_vec, len(test_rank_list), 0)
                 ndcg.append(ndcg_val)
-                song_click.append(self.song_clicks_metric(gt_vec))
-                r_prec.append(self.r_precision(gt, test_rank))
-                recall_500.append(self.precision_and_recall_at_k(gt, test_rank)[1])
+                song_click.append(song_clicks_metric(gt_vec))
+                r_prec.append(r_precision(ground_truth, test_rank))
+                recall_500.append(precision_and_recall_at_k(ground_truth, test_rank)[1])
 
                 #  ignores test set songs not found in training set
             pbar.update(1)
