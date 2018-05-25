@@ -97,15 +97,12 @@ class DataManager:
             if track_uri not in self.uri_to_id.keys():
                 tid = len(self.id_to_uri)
 
-
                 self.uri_to_id[track_uri] = tid
                 self.id_to_uri[tid] = [track['track_uri'], track['track_name'],
                                        track['artist_uri'], track['artist_name'],
                                        track['album_uri'], track['album_name'],
-                                       modified] # will keep time when first appears in a playlist
+                                       modified, modified] # will keep time when first appears in a playlist
                 self.track_frequency.append(0)
-
-
 
                 self.artist_to_track_id[track['artist_uri']].append(tid)
                 self.album_to_track_id[track['album_uri']].append(tid)
@@ -115,7 +112,8 @@ class DataManager:
             self.track_frequency[track_id] += 1
             if modified < self.id_to_uri[track_id][6]:  # update time stamp for track if it appears earlier
                 self.id_to_uri[track_id][6] = modified
-
+            if modified > self.id_to_uri[track_id][7]:  # update time stamp for track if it appears earlier
+                self.id_to_uri[track_id][7] = modified
 
 
 
@@ -199,7 +197,7 @@ class DataManager:
                 if train_done and test_done:
                     break
 
-                is_train = random.uniform(0, 1) < train_test_ratio
+                is_train = random.uniform(0, 1) > train_test_ratio
 
                 # skip playlist if we have already loaded enough of them for either train or test
                 if is_train and train_done:
@@ -210,6 +208,8 @@ class DataManager:
                 if is_train:
                     self._add_train_playlist(playlist)
                     train_done = len(self.train) >= self.train_size
+                    if train_done:
+                        pass
                     pbar.update(1)
 
                 else:
@@ -280,17 +280,22 @@ class DataManager:
 
     ####  NEED TO UPDATE LSA MATRICES  to use lsa_track_mask -> tracks with not small prior probabilities
     def create_train_matrix(self):
+        print(" - train matrix")
 
         num_rows = len(self.train)
         num_cols = len(self.lsa_track_mask)
 
         self.X = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for p in range(num_rows):
+            if p % 10000 == 0:
+                print(p, " of ", num_rows)
             for t in self.train[p]:
                 if t in self.lsa_track_mask:
                     self.X[p, self.lsa_id_to_column[t]] = 1
 
     def create_test_matrix(self):
+        print(" - test matrix")
+
         num_subtest = len(self.test)
         num_rows = len(self.test[0])
         num_cols = len(self.lsa_track_mask)
@@ -305,6 +310,7 @@ class DataManager:
         return
 
     def create_challenge_matrix(self):
+        print(" - challenge matrix")
         num_rows = len(self.challenge)
         num_cols = len(self.lsa_track_mask)
         self.X_challenge = lil_matrix((num_rows, num_cols), dtype=np.int8)
@@ -398,11 +404,11 @@ def load_data(train_size=10000, test_size=2000, load_challenge=False, create_mat
 if __name__ == '__main__':
 
     """ Parameters for Loading Data """
-    generate_data_arg = True    # True - load data for given parameter settings
+    generate_data_arg = False    # True - load data for given parameter settings
     #                             False - only load data if pickle file doesn't already exist
-    train_size_arg = 10000       # number of playlists for training
+    train_size_arg = 100000       # number of playlists for training
     lsa_min_track_prior_arg = 0.0002      # minimum prior probability needed to keep track in LSA training matrix size (default 0.0002 or 2 / 10000 playlists
-    test_size_arg = 1000        # number of playlists for testing
+    test_size_arg = 2000        # number of playlists for testing
     load_challenge_arg = True  # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge data
 
