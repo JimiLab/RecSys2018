@@ -80,8 +80,10 @@ class DataManager:
         pid = len(self.train)
         self.train.append([])
         self.train_title.append(self.normalize_name(playlist["name"]))
+        description = ""
         if "description" in playlist:
-            self.train_description.append(self.normalize_name(playlist["description"]))
+            description = self.normalize_name(playlist["description"])
+        self.train_description.append(description)
 
 
 
@@ -210,8 +212,9 @@ class DataManager:
 
 
         # resolve test playlist against training track corpus
-        #  set unknown tracks to have id = -1
+        #  set unknown tracks to have id < 0 (e.g.,  -1, -2, -3, ...
         for s in range(10):
+            miss_idx = -1
             for p in range(len(self.test_uri[s])):
                 self.test[s].append([])
                 self.test_truth[s].append([])
@@ -223,7 +226,8 @@ class DataManager:
 
                 for uri in self.test_truth_uri[s][p]:
                    if uri not in self.uri_to_id.keys():
-                       self.test_truth[s][p].append(-1)
+                       self.test_truth[s][p].append(miss_idx)
+                       miss_idx -= 1
                    else:
                        self.test_truth[s][p].append(self.uri_to_id[uri])
         return
@@ -278,8 +282,8 @@ class DataManager:
             mat = lil_matrix((num_rows, num_cols), dtype=np.int8)
             for p in range(num_rows):
                 for t in self.test[s][p]:
-                    if t != -1:
-                        mat[ p, t] = 1
+                    if t >= 0: # not a missing track from outside of track corpus
+                        mat[p, t] = 1
             self.X_test.append(mat)
         return
 
@@ -289,7 +293,7 @@ class DataManager:
         self.X_challenge = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for p in range(num_rows):
             for t in self.challenge[p]:
-                if t != -1:
+                if t >= 0:
                     self.X_challenge[p, t] = 1
 
     def calculate_popularity(self):
@@ -352,7 +356,7 @@ if __name__ == '__main__':
     """ Parameters for Loading Data """
     generate_data_arg = True    # True - load data for given parameter settings
     #                             False - only load data if pickle file doesn't already exist
-    train_size_arg = 1000       # number of playlists for training
+    train_size_arg = 2000       # number of playlists for training
     test_size_arg = 1000        # number of playlists for testing
     load_challenge_arg = True  # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge data
