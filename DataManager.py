@@ -281,20 +281,19 @@ class DataManager:
         joblib.dump(self, filename)
 
 
-    ####  NEED TO UPDATE LSA MATRICES  to use lsa_track_mask -> tracks with not small prior probabilities
+
     def create_train_matrix(self):
         print(" - train matrix")
 
         num_rows = len(self.train)
-        num_cols = len(self.lsa_track_mask)
+        num_cols = len(self.id_to_uri)
 
         self.X = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for p in range(num_rows):
             if p % 10000 == 0:
                 print(p, " of ", num_rows)
             for t in self.train[p]:
-                if t in self.lsa_track_mask:
-                    self.X[p, self.lsa_id_to_column[t]] = 1
+                self.X[p, t] = 1
 
     def create_test_top_track_matrix(self):
         print(" - test top tracks from artist and album matrix")
@@ -330,26 +329,26 @@ class DataManager:
 
         num_subtest = len(self.test)
         num_rows = len(self.test[0])
-        num_cols = len(self.lsa_track_mask)
+        num_cols = len(self.id_to_uri)
         self.X_test = list()
         for s in range(num_subtest):
             mat = lil_matrix((num_rows, num_cols), dtype=np.int8)
             for p in range(num_rows):
                 for t in self.test[s][p]:
-                    if t >= 0 and t in self.lsa_track_mask:
-                        mat[p, self.lsa_id_to_column[t]] = 1
+                    if t >= 0 :
+                        mat[p,t] = 1
             self.X_test.append(mat)
         return
 
     def create_challenge_matrix(self):
         print(" - challenge matrix")
         num_rows = len(self.challenge)
-        num_cols = len(self.lsa_track_mask)
+        num_cols = len(self.id_to_uri)
         self.X_challenge = lil_matrix((num_rows, num_cols), dtype=np.int8)
         for p in range(num_rows):
             for t in self.challenge[p]:
-                if t >= 0 and t in self.lsa_track_mask:
-                    self.X_challenge[p, self.lsa_id_to_column[t]] = 1
+                if t >= 0:
+                    self.X_challenge[p, t] = 1
 
     def calculate_popularity(self, top_k = 3):
         print("Calculating Track Prior Proabability, Top Artist Tracks, and Top Album Tracks ")
@@ -372,13 +371,7 @@ class DataManager:
         self.create_test_top_track_matrix()
 
 
-    def create_matrices(self, min_track_prior = 0.0002 ):
-
-        self.lsa_track_mask = np.extract(self.popularity_vec > min_track_prior,
-                                         np.arange(0,self.popularity_vec.shape[0]))
-        self.lsa_id_to_column = dict()
-        for i in range(len(self.lsa_track_mask)):
-            self.lsa_id_to_column[self.lsa_track_mask[i]] = i
+    def create_matrices(self ):
 
 
         self.create_train_matrix()
@@ -392,8 +385,7 @@ class DataManager:
 # END OF CLASS
 
 
-def load_data(train_size=10000, test_size=2000, load_challenge=False, create_matrices=False, generate_data=False,
-              lsa_min_track_prior=0.0002):
+def load_data(train_size=10000, test_size=2000, load_challenge=False, create_matrices=False, generate_data=False):
 
     """ Fixed Path Names """
     data_folder = os.path.join(os.getcwd(), 'data/mpd.v1/data/')
@@ -426,7 +418,7 @@ def load_data(train_size=10000, test_size=2000, load_challenge=False, create_mat
             d.load_challenge_data()
         if create_matrices:
             print("Calculate Numpy Matrices")
-            d.create_matrices(lsa_min_track_prior)
+            d.create_matrices()
 
         print("Pickle Data into file: "+pickle_file)
         d.pickle_data(pickle_file)
@@ -442,15 +434,12 @@ if __name__ == '__main__':
     generate_data_arg = False    # True - load data for given parameter settings
     #                             False - only load data if pickle file doesn't already exist
     train_size_arg = 10000       # number of playlists for training
-    lsa_min_track_prior_arg = 0.0002      # minimum prior probability needed to keep track in LSA training matrix size (default 0.0002 or 2 / 10000 playlists
     test_size_arg = 1000        # number of playlists for testing
     load_challenge_arg = True  # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge data
 
     data_in = load_data(train_size_arg, test_size_arg, load_challenge_arg, create_matrices_arg,
-                        generate_data_arg, lsa_min_track_prior_arg)
+                        generate_data_arg)
 
-    # lsa = predict_with_LSA()
-    # lsa.predict_playlists(svd_components=64)
 
     pass
