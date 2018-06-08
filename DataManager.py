@@ -62,13 +62,15 @@ class DataManager:
         self.uri_to_id = dict()
         self.id_to_uri = dict()
         self.track_frequency = []
+        self.track_timestamps = [] #list of modified timestamps for playlists in which the track appears
         self.artist_to_track_id = defaultdict(list)
         self.album_to_track_id = defaultdict(list)
         self.pid_to_spotify_pid = []
         self.X = None
         self.X_test = None
         self.X_challenge = None
-        self.popularity_vec = None
+        self.popularity_vec = None          # prior probability of track occuring on a playlist
+
         self.prefix = "spotify:track:"
 
     def normalize_name(self, name):
@@ -100,9 +102,9 @@ class DataManager:
                 self.uri_to_id[track_uri] = tid
                 self.id_to_uri[tid] = [track['track_uri'], track['track_name'],
                                        track['artist_uri'], track['artist_name'],
-                                       track['album_uri'], track['album_name'],
-                                       modified, modified] # will keep time when first appears in a playlist
+                                       track['album_uri'], track['album_name']]
                 self.track_frequency.append(0)
+                self.track_timestamps.append(list())
 
                 self.artist_to_track_id[track['artist_uri']].append(tid)
                 self.album_to_track_id[track['album_uri']].append(tid)
@@ -110,11 +112,7 @@ class DataManager:
             track_id = self.uri_to_id[track_uri]
             self.train[pid].append(track_id)
             self.track_frequency[track_id] += 1
-            if modified < self.id_to_uri[track_id][6]:  # update time stamp for track if it appears earlier
-                self.id_to_uri[track_id][6] = modified
-            if modified > self.id_to_uri[track_id][7]:  # update time stamp for track if it appears earlier
-                self.id_to_uri[track_id][7] = modified
-
+            self.track_timestamps[track_id].append(modified)
 
 
 
@@ -199,9 +197,14 @@ class DataManager:
 
                 is_train = random.uniform(0, 1) > train_test_ratio
 
+
+                # POTENTIAL DATA LEAKER - Once training is full, everything else can be a test playlist
+
+
                 # skip playlist if we have already loaded enough of them for either train or test
                 if is_train and train_done:
-                    continue
+                    is_train = False
+
                 if not is_train and test_done:
                     continue
 
@@ -293,6 +296,35 @@ class DataManager:
                 if t in self.lsa_track_mask:
                     self.X[p, self.lsa_id_to_column[t]] = 1
 
+    def create_test_top_track_matrix(self):
+        print(" - test top tracks from artist and album matrix")
+
+        num_subtest = len(self.test)
+        num_rows = len(self.test[0])
+        num_cols = len(self.id_to_uri)
+        self.X_test_top_tracks = list()
+        # BUG HERE Make this 0 to num_subtest
+        for s in range(0,num_subtest):
+            mat = lil_matrix((num_rows, num_cols), dtype=np.int8)
+
+            for p in range(num_rows):
+                for track_id in self.test[s][p]:
+                    if track_id >= 0:
+
+                        artist_uri = self.id_to_uri[track_id][2]
+                        for top_track_id in self.artist_top_tracks[artist_uri]:
+                            if track_id != top_track_id:
+                                mat[p, top_track_id] = 1
+
+                        album_uri = self.id_to_uri[track_id][4]
+                        for top_track_id in self.album_top_tracks[album_uri]:
+                            if track_id != top_track_id:
+                                mat[p, top_track_id] = 1
+
+            self.X_test_top_tracks.append(mat)
+        return
+
+
     def create_test_matrix(self):
         print(" - test matrix")
 
@@ -335,6 +367,9 @@ class DataManager:
             idx = np.argsort(1 / track_pops)[0:min(top_k, len(track_pops))].tolist()  # sort artist track by popularity
             for i in idx:
                 self.album_top_tracks[k].append(v[i])
+
+
+        self.create_test_top_track_matrix()
 
 
     def create_matrices(self, min_track_prior = 0.0002 ):
@@ -406,13 +441,14 @@ if __name__ == '__main__':
     """ Parameters for Loading Data """
     generate_data_arg = False    # True - load data for given parameter settings
     #                             False - only load data if pickle file doesn't already exist
-    train_size_arg = 100000       # number of playlists for training
+    train_size_arg = 10000       # number of playlists for training
     lsa_min_track_prior_arg = 0.0002      # minimum prior probability needed to keep track in LSA training matrix size (default 0.0002 or 2 / 10000 playlists
-    test_size_arg = 2000        # number of playlists for testing
+    test_size_arg = 1000        # number of playlists for testing
     load_challenge_arg = True  # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge data
 
-    data_in = load_data(train_size_arg, test_size_arg, load_challenge_arg, create_matrices_arg, generate_data_arg, lsa_min_track_prior_arg)
+    data_in = load_data(train_size_arg, test_size_arg, load_challenge_arg, create_matrices_arg,
+                        generate_data_arg, lsa_min_track_prior_arg)
 
     # lsa = predict_with_LSA()
     # lsa.predict_playlists(svd_components=64)
