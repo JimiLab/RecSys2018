@@ -46,9 +46,40 @@ def r_precision(targets, predictions, max_n_predictions=500):
 
     # Calculate metric
     target_set = set(targets)
-    #target_count = len(target_set)
-    target_count = len(targets)
+    target_count = len(target_set)
+    #target_count = len(targets)
     return float(len(set(predictions[:target_count]).intersection(target_set))) / target_count
+
+
+"""
+def r_precision_with_artist_fallback(targets, predictions, max_n_predictions=500):
+    ARTIST_MATCH_BONUS = 0.25
+
+    # First, cap the number of predictions
+    predictions = predictions[:max_n_predictions]
+    target_set = set(targets)
+    target_count = len(target_set)
+
+    acount = Counter()
+    amax = Counter()
+    for track in targets:
+        artist = get_artist(track)
+        if artist:
+            amax[artist] = 1
+
+    TP = 0
+    for track in set(predictions[:target_count]):
+        if track in target_set:
+            TP += 1
+        else:
+            artist = get_artist(track)
+            if artist and amax[artist] > 0:
+                if acount[artist] < amax[artist]:
+                    TP += ARTIST_MATCH_BONUS
+                    acount[artist] += 1
+    rprec = float(TP) / target_count
+    return rprec
+"""
 
 def dcg(relevant_elements, retrieved_elements, k, *args, **kwargs):
     """Compute the Discounted Cumulative Gain.
