@@ -52,7 +52,7 @@ class PredictWithLSA(Predict):
         self.svd.fit(self.d.X[:, self.lsa_track_mask])
         print("done.")
 
-    def predict_from_matrices(self, X, X_top_tracks, X_words, weights, z_score=True, random_baseline=False):
+    def predict_from_matrices(self, X, pop_vec, X_top_tracks, X_words, weights, z_score=True, random_baseline=False):
 
 
         #return np.random.randint(0, 10000 ,size=(X.shape[0], self.num_predictions))
@@ -67,13 +67,12 @@ class PredictWithLSA(Predict):
         lsa_vecs_hat = csc_matrix(X.shape, dtype="float32")
         lsa_vecs_hat[:, self.lsa_track_mask] = lsa_vecs_hat_compressed
 
-        # create all popularity vecs so that 1st place is pop of 1.0
-        pop_vec = self.d.popularity_vec / np.max(self.d.popularity_vec)
+
 
         # linear combination of LSA score, popularity, and top tracks from artist and album
         test_vecs_hat = weights[0] * lsa_vecs_hat + \
                         weights[1] * pop_vec + \
-                        weights[2] * X_top_tracks  + \
+                        weights[2] * X_top_tracks + \
                         weights[3] * X_words
 
         # effectively remove known tracks that already appear in the test playlists by given large negative weight
@@ -108,13 +107,19 @@ class PredictWithLSA(Predict):
 
         results = np.zeros((num_subtest,num_playlists, num_metrics), dtype=float)
 
-        #pbar = tqdm(total=num_subtest)
-        #pbar.write('~~~~~~~ Predicting Playlists ~~~~~~~')
+        # create all popularity vecs so that 1st place is pop of 1.0
+        pop_vec = self.d.popularity_vec / np.max(self.d.popularity_vec)
+
+        pbar = tqdm(total=num_subtest)
+        pbar.write('~~~~~~~ Predicting Playlists ~~~~~~~')
 
         for st in range(num_subtest):
 
-            test_rank = self.predict_from_matrices(self.d.X_test[st].tocsc(), self.d.X_test_top_tracks[st],
-                                                   self.d.X_test_words[st], weights)
+            test_rank = self.predict_from_matrices(self.d.X_test[st].tocsc(),
+                                                   pop_vec,
+                                                   self.d.X_test_top_tracks[st],
+                                                   self.d.X_test_words[st],
+                                                   weights[st])
 
             #test_rank = self.predict_from_words(self.d.X_test_words[st])
 
@@ -124,8 +129,8 @@ class PredictWithLSA(Predict):
                 results[st][pl] = np.array(result)
 
                     #  ignores test set songs not found in training set
-            #pbar.update(1)
-        #pbar.close()
+            pbar.update(1)
+        pbar.close()
 
         average_result = np.mean(results, axis=1)
 
@@ -133,7 +138,6 @@ class PredictWithLSA(Predict):
         print("LSA dims: ", self.num_components)
         print("LSA Track Corpus Size:", self.lsa_track_mask.size, "(min track prior =", self.min_track_prior,")")
         print()
-        # print("Average Recall @ ", num_predictions,":", np.average(recall_500))
         self.print_subtest_results(self.d.subtest_name, metric_names, average_result)
         print()
         self.print_overall_results(metric_names, np.mean(average_result, axis=0))
@@ -150,9 +154,11 @@ class PredictWithLSA(Predict):
 
         num_subtest = 10
         num_playlists = len(self.d.challenge)               # 10000
-        subtest_size = len(self.d.challenge) / num_subtest  # 1000
+        subtest_size = int(len(self.d.challenge) / num_subtest)  # 1000
 
-        rank = np.zeros(num_playlists, self.num_predictions)
+        #rank = np.zeros(num_playlists, self.num_predictions)
+        # create all popularity vecs so that 1st place is pop of 1.0
+        pop_vec = self.d.popularity_vec / np.max(self.d.popularity_vec)
 
         pbar = tqdm(total=num_subtest)
         pbar.write('~~~~~~~ Generating Ranks by Subchallenge ~~~~~~~')
@@ -161,6 +167,7 @@ class PredictWithLSA(Predict):
             start = i*subtest_size
             end = start+subtest_size
             rank = self.predict_from_matrices(self.d.X_challenge[start:end, :].tocsc(),
+                                              pop_vec,
                                               self.d.X_challenge_top_tracks[start:end, :],
                                               self.d.X_challenge_words[start:end, :],
                                               weights[i])
@@ -168,7 +175,7 @@ class PredictWithLSA(Predict):
             (num_rows, num_columns) = rank.shape
             for pid in range(num_rows):
 
-                spotify_pid = self.d.pid_to_spotify_pid[pid]
+                spotify_pid = self.d.pid_to_spotify_pid[start+pid]
                 f.write(str(spotify_pid))
 
                 for tid in range(num_columns):
@@ -190,7 +197,7 @@ if __name__ == '__main__':
     create_pickle_file_arg = True     #create a pickle file
     train_size_arg = 100000      # number of playlists for training
     test_size_arg = 2000        # number of playlists for testing
-    load_challenge_arg = False   # loads challenge data when creating a submission to contest
+    load_challenge_arg = True   # loads challenge data when creating a submission to contest
     create_matrices_arg = True  # creates numpy matrices for train, test, and (possibly) challenge dat (should always be True)
     random_baseline_arg = False  # set to true if you want to run random baseline
 
@@ -204,6 +211,17 @@ if __name__ == '__main__':
     words_weight_arg = .2
 
     weights = (lsa_weight_arg, popularity_weight_arg, related_track_weight_arg, words_weight_arg)
+
+    sub_weights = [(0.9, 0.01, 0.0001, 0.08989999999999998),
+                   (0.2, 0.0, 0.001, 0.799),
+                   (0.2, 0.0, 0.001, 0.799),
+                   (0.1, 0.2, 0.6, 0.09999999999999998),
+                   (0.1, 0.2, 0.6, 0.09999999999999998),
+                   (0.1, 0.2, 0.6, 0.09999999999999998),
+                   (0.1, 0.2, 0.6, 0.09999999999999998),
+                   (0.1, 0.2, 0.6, 0.09999999999999998),
+                   (0.4, 0.0, 0.6, 0.0),
+                   (0.1, 0.2, 0.6, 0.09999999999999998)]
 
     submission_file_arg = os.path.join(os.getcwd(), 'data/submissions/lsa_test_June20.csv')
 
@@ -261,23 +279,12 @@ if __name__ == '__main__':
         print(np.mean(top_score))
 
     if True:
-        lsa.predict_playlists(weights, z_score=lsa_zscore_arg, random_baseline=random_baseline_arg)
+        lsa.predict_playlists(sub_weights, z_score=lsa_zscore_arg, random_baseline=random_baseline_arg)
 
 
     if load_challenge_arg:
         print("Generating Submission file:", submission_file_arg)
-
-        sub_weights = [(0.9, 0.01, 0.0001, 0.08989999999999998),
-                       (0.2, 0.0, 0.001, 0.799),
-                       (0.2, 0.0, 0.001, 0.799),
-                       (0.1, 0.2, 0.6, 0.09999999999999998),
-                       (0.1, 0.2, 0.6, 0.09999999999999998),
-                       (0.1, 0.2, 0.6, 0.09999999999999998),
-                       (0.1, 0.2, 0.6, 0.09999999999999998),
-                       (0.1, 0.2, 0.6, 0.09999999999999998),
-                       (0.4, 0.0, 0.6, 0.0),
-                       (0.1, 0.2, 0.6, 0.09999999999999998)]
-
         lsa.generate_submission(submission_file_arg, sub_weights, z_score=lsa_zscore_arg)
+
     print("done")
 

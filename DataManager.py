@@ -152,7 +152,7 @@ class DataManager:
             description = playlist["description"]
         self.train_description.append(description)
 
-        self.add_tokens_to_index(pid, title, description)
+        token_dict = self.add_tokens_to_index(pid, title, description)
 
         modified = playlist["modified_at"]
 
@@ -468,7 +468,7 @@ class DataManager:
 
 
 
-    def create_test_word_matrix(self):
+    def create_test_word_matrix_by_playlist_neighbors(self):
         print(" - test title and description word matrix (0-9):")
 
         num_subtest = len(self.test)
@@ -501,16 +501,6 @@ class DataManager:
 
                 #average playlist vectors for all playlists with matching terms
 
-                # slow but space efficient loop for scores times vecs
-                #t = time.time()
-                #for pid in scores.keys():
-                #    mat[p, :] += self.X[pid, :] * scores[pid]
-                #tt= time.time() - t
-
-                #print("matrix stuff for ", len(scores)," rows " , tt)
-
-
-                # faster broadcast hack but uses dense representation
                 temp_mat = self.X[list(scores.keys()), :].todense()
                 temp_score = np.array(list(scores.values()))
                 temp_vec = np.sum(np.multiply(temp_mat.T, temp_score).T, axis=0) /(1+math.log(1+len(scores)))
@@ -521,18 +511,20 @@ class DataManager:
             self.X_test_words.append(mat)
         print("done.")
 
-    def create_challenge_word_matrix(self):
+    def create_challenge_word_matrix_by_playlist_neighbors(self):
         print(" - challenge title and description word matrix")
 
-        num_rows = len(self.test[0])
+        num_rows = len(self.challenge)
         num_cols = len(self.id_to_uri)
 
         mat = csr_matrix((num_rows, num_cols), dtype="float32")
 
+        pbar = tqdm(total=num_rows)
+
         for p in range(num_rows):
             tokens = self.text_process(self.challenge_title[p])
 
-            query_token_score = 1 / math.sqrt(len(tokens))
+            query_token_score = 1 / math.sqrt(max(1,len(tokens)))
 
             scores = defaultdict(float)
             for token in tokens:
@@ -541,9 +533,12 @@ class DataManager:
                         scores[pid] += self.word_index[token][pid] * query_token_score
 
             # average playlist vectors for all playlists with matching terms
-            for pid in scores.keys():
-                mat[p, :] += self.X[pid, :] * scores[pid]
-            mat[p, :] /= len(scores.keys())
+            temp_mat = self.X[list(scores.keys()), :].todense()
+            temp_score = np.array(list(scores.values()))
+            temp_vec = np.sum(np.multiply(temp_mat.T, temp_score).T, axis=0) / (1 + math.log(1 + len(scores)))
+            # denominator is is used to scale the output so that the maximum value is close to 1
+            mat[p, :] = temp_vec
+            pbar.update(1)
 
         self.X_challenge_words = mat
 
@@ -617,7 +612,7 @@ if __name__ == '__main__':
     #                               False - only load data if pickle file doesn't already exist
     train_size_arg = 10000        # number of playlists for training
     test_size_arg = 1000          # number of playlists for testing
-    load_challenge_arg = False    # loads challenge data when creating a submission to contest
+    load_challenge_arg = True    # loads challenge data when creating a submission to contest
     create_matrices_arg = True    # creates numpy matrices for train, test, and (possibly) challenge data
     create_pickle_file_arg = True #takes time to create pickle file
 
