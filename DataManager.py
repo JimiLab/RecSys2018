@@ -24,15 +24,19 @@ class DataManager:
      Each list represents the three parts of the data set: train, test, challenge
     """
 
-    def __init__(self, path, train_size=10000, test_size=2000, challenge_file=None):
+    def __init__(self, path, track_prior, train_size=10000, test_size=2000, challenge_file=None, min_track_prior=0.0):
         self.DATA_DIR = path
         self.CHALLENGE_FILE = challenge_file
+        self.track_prior = track_prior
+        self.min_track_prior = min_track_prior
         self.data_cache = dict()
         self.train_size = train_size
         self.train = []
         self.train_title = []
         self.train_description = []
-        self.word_index = defaultdict(dict)
+        self.word_index_playlist = defaultdict(dict) # token -> playlist -> score
+        self.word_index_track = defaultdict(dict)    # token -> track _  ->score
+
 
 
         self.test_size = math.ceil(test_size/10.0)*10 # needs to be a multiple of 10
@@ -75,6 +79,7 @@ class DataManager:
         self.X = None
         self.X_test = None
         self.X_test_words = None
+
         self.X_challenge = None
         self.X_challenge_words = None
         self.popularity_vec = None          # prior probability of track occuring on a playlist
@@ -99,47 +104,55 @@ class DataManager:
         name = re.sub(r'\s+', ' ', name).strip()
         return name
 
-    def add_tokens_to_index(self, pid, title, description):
+    def add_tokens_to_index(self, index, id, title, description):
 
         str_lists =[[self.normalize_name(title)], self.text_process(title), self.text_process(description)]
         weights = [1.0, 0.5, 0.25]
         for i in range(len(str_lists)):
             for t in str_lists[i]:
-                if t in self.word_index.keys():
-                    if pid in self.word_index[t]:
-                        self.word_index[t][pid] += weights[i]
+                if t in index.keys():
+                    if id in index[t]:
+                        index[t][id] += weights[i]
                     else:
-                        self.word_index[t][pid] = weights[i]
+                        index[t][id] = weights[i]
                 else:
-                    self.word_index[t] = {pid : weights[i]}
+                    index[t] = {id : weights[i]}
 
+    def tfidf_index(self, index, num_docs, mode="ltc"):
 
-    def tfidf_index(self):
-        num_playlists = len(self.id_to_uri)
-        for term in self.word_index.keys():
-            idf = math.log10(num_playlists/len(self.word_index[term].keys()))
-            for pid in self.word_index[term]:
-                #self.word_index[term][pid] = (1 + math.log10(self.word_index[term][pid])) * idf
-                self.word_index[term][pid] = self.word_index[term][pid] * idf
-                #self.word_index[term][pid]= self.word_index[term][pid]
+        print("Word Index Mode", mode)
+        #num_docs = len(index)
+        for term in index.keys():
+
+            idf = 1
+            if (mode[1] == 't'):
+                idf = math.log10(num_docs / len(index[term].keys()))
+
+            for id in index[term]:
+                tf = index[term][id]
+                if mode[0] == 'l':
+                    tf = 1+ math.log10(tf)
+                index[term][id] = tf * idf
+                if tf*idf < 0:
+                    pass
 
         #length normalization - 2-pass algorithm - sum of squares
-        doc_len = defaultdict(float)
-        for term in self.word_index.keys():
-            for pid in self.word_index[term].keys():
-                doc_len[pid] += self.word_index[term][pid]**2
+        if mode[2] == 'c':
+            doc_len = defaultdict(float)
+            for term in index.keys():
+                for id in index[term].keys():
+                    doc_len[id] += index[term][id] ** 2
 
-        for term in self.word_index.keys():
-            for pid in self.word_index[term].keys():
-                self.word_index[term][pid] = self.word_index[term][pid] / math.sqrt(doc_len[pid])
+            for term in index.keys():
+                for id in index[term].keys():
+                    index[term][id] /= math.sqrt(doc_len[id])
 
         # check to make sure that each playlist is length 1
-        check_doc_len = defaultdict(float)
-        for term in self.word_index.keys():
-            for pid in self.word_index[term].keys():
-                check_doc_len[pid] += self.word_index[term][pid]**2
-        pass
-
+        #check_doc_len = defaultdict(float)
+        #for term in self.word_index_playlist.keys():
+        #    for pid in self.word_index_playlist[term].keys():
+        #        check_doc_len[pid] += self.word_index_playlist[term][pid] ** 2
+        #pass
 
     def _add_train_playlist(self, playlist):
 
@@ -152,7 +165,7 @@ class DataManager:
             description = playlist["description"]
         self.train_description.append(description)
 
-        token_dict = self.add_tokens_to_index(pid, title, description)
+        self.add_tokens_to_index(self.word_index_playlist, pid, title, description)
 
         modified = playlist["modified_at"]
 
@@ -160,9 +173,13 @@ class DataManager:
             track_uri = track['track_uri']
             track_uri = track_uri[len(self.prefix):]
 
+            if self.track_prior[track_uri] < self.min_track_prior:
+                continue
+
             # new track that has never been encountered before
             if track_uri not in self.uri_to_id.keys():
                 tid = len(self.id_to_uri)
+
 
                 self.uri_to_id[track_uri] = tid
                 self.id_to_uri[tid] = [track['track_uri'], track['track_name'],
@@ -179,8 +196,7 @@ class DataManager:
             self.track_frequency[track_id] += 1
             self.track_timestamps[track_id].append(modified)
 
-
-
+            self.add_tokens_to_index(self.word_index_track, track_id, title, description)
 
     def _add_test_playlist(self, playlist):
 
@@ -217,8 +233,7 @@ class DataManager:
         self.test_truth_uri[subtest].append(uri_list[split:])
         pass
 
-
-    def load_playlist_data(self):
+    def load_playlist_data(self, mode='ltc'):
         """
         Loads MPD JSON data files sequentially.
 
@@ -293,7 +308,10 @@ class DataManager:
 
         pbar.close()
         # TODO: need to explore variants of TF-IDF
-        self.tfidf_index()
+
+
+        self.tfidf_index(self.word_index_playlist, len(self.train), mode=mode)
+        self.tfidf_index(self.word_index_track, len(self.id_to_uri), mode=mode)
 
 
         # resolve test playlist against training track corpus
@@ -349,11 +367,8 @@ class DataManager:
         self.challenge_size = len(self.challenge)
         pbar.close()
 
-
     def pickle_data(self, filename):
         joblib.dump(self, filename)
-
-
 
     def create_train_matrix(self):
         print(" - train matrix")
@@ -396,8 +411,6 @@ class DataManager:
 
             self.X_test_top_tracks.append(mat.tocsc())
 
-
-
     def create_challenge_top_track_matrix(self):
         print(" - challenge top tracks from artist and album matrix")
 
@@ -421,7 +434,6 @@ class DataManager:
                             mat[p, top_track_id] = 1
 
         self.X_challenge_top_tracks= mat.tocsc()
-
 
     def create_test_matrix(self):
         print(" - test matrix")
@@ -449,7 +461,7 @@ class DataManager:
                 if t >= 0:
                     self.X_challenge[p, t] = 1
 
-    def calculate_popularity(self, top_k = 3):
+    def calculate_popularity(self, top_k = 5):
         print("Calculating Track Prior Proabability, Top Artist Tracks, and Top Album Tracks ")
         self.popularity_vec = np.array(self.track_frequency) / self.train_size
         self.artist_top_tracks = defaultdict(list)
@@ -466,10 +478,8 @@ class DataManager:
             for i in idx:
                 self.album_top_tracks[k].append(v[i])
 
-
-
     def create_test_word_matrix_by_playlist_neighbors(self):
-        print(" - test title and description word matrix (0-9):")
+        print(" - test title and description word matrix by playlist neighbors:")
 
         num_subtest = len(self.test)
         num_rows = len(self.test[0])
@@ -495,9 +505,9 @@ class DataManager:
 
                 scores = defaultdict(float)
                 for token in tokens:
-                    if token in self.word_index.keys():
-                        for pid in self.word_index[token]:
-                            scores[pid] += self.word_index[token][pid]*query_token_score
+                    if token in self.word_index_playlist.keys():
+                        for pid in self.word_index_playlist[token]:
+                            scores[pid] += self.word_index_playlist[token][pid] * query_token_score
 
                 #average playlist vectors for all playlists with matching terms
 
@@ -506,9 +516,45 @@ class DataManager:
                 temp_vec = np.sum(np.multiply(temp_mat.T, temp_score).T, axis=0) /(1+math.log(1+len(scores)))
                 # denominator is is used to scale the output so that the maximum value is close to 1
                 mat[p, :] = temp_vec
-            pbar.update(1)
 
             self.X_test_words.append(mat)
+            pbar.update(1)
+
+        print("done.")
+
+    def create_test_word_matrix_by_track_index(self):
+        print(" - test title and description word matrix by track index:")
+
+        num_subtest = len(self.test)
+        num_rows = len(self.test[0])
+        num_cols = len(self.id_to_uri)
+        self.X_test_words = list()
+
+        pbar = tqdm(total=num_subtest)
+
+        for s in range(0,num_subtest):
+
+            mat = lil_matrix((num_rows, num_cols), dtype="float32")
+
+            for p in range(num_rows):
+
+                tokens  = self.text_process(self.test_title[s][p])
+                if len(tokens) > 1:  # add complete title as search token
+                    tokens.append(self.normalize_name(self.test_title[s][p]))
+
+                if len(tokens) == 0:
+                    continue
+
+                query_token_score = 1/math.sqrt(len(tokens))
+
+                for token in tokens:
+                    if token in self.word_index_track.keys():
+                        for tid in self.word_index_track[token]:
+                            mat[p,tid] += self.word_index_track[token][tid] * query_token_score
+
+            self.X_test_words.append(mat.tocsr())
+            pbar.update(1)
+
         print("done.")
 
     def create_challenge_word_matrix_by_playlist_neighbors(self):
@@ -520,7 +566,6 @@ class DataManager:
         mat = csr_matrix((num_rows, num_cols), dtype="float32")
 
         pbar = tqdm(total=num_rows)
-
         for p in range(num_rows):
             tokens = self.text_process(self.challenge_title[p])
 
@@ -528,9 +573,9 @@ class DataManager:
 
             scores = defaultdict(float)
             for token in tokens:
-                if token in self.word_index.keys():
-                    for pid in self.word_index[token]:
-                        scores[pid] += self.word_index[token][pid] * query_token_score
+                if token in self.word_index_playlist.keys():
+                    for pid in self.word_index_playlist[token]:
+                        scores[pid] += self.word_index_playlist[token][pid] * query_token_score
 
             # average playlist vectors for all playlists with matching terms
             temp_mat = self.X[list(scores.keys()), :].todense()
@@ -540,7 +585,43 @@ class DataManager:
             mat[p, :] = temp_vec
             pbar.update(1)
 
+        pbar.close()
         self.X_challenge_words = mat
+
+    def create_challenge_word_matrix_by_track_index(self):
+        print(" - challenge title and description word matrix by track index:")
+
+        num_rows = len(self.challenge)
+        num_cols = len(self.id_to_uri)
+
+        mat = lil_matrix((num_rows, num_cols), dtype="float32")
+        pbar = tqdm(total=num_rows)
+        for p in range(num_rows):
+
+            pbar.update(1)
+
+            # REMOVE LATER: don't compute word matrix for last 5 subchallenges sets
+            #if p > 5000:
+            #    continue
+
+            tokens  = self.text_process(self.challenge_title[p])
+            if len(tokens) > 1:  # add complete title as search token
+                tokens.append(self.normalize_name(self.challenge_title[p]))
+
+            if len(tokens) == 0:
+                continue
+
+            query_token_score = 1/math.sqrt(len(tokens))
+
+            for token in tokens:
+                if token in self.word_index_track.keys():
+                    for tid in self.word_index_track[token]:
+                        mat[p,tid] += self.word_index_track[token][tid] * query_token_score
+
+
+        self.X_challenge_words = mat.tocsr()
+        pbar.close()
+        print("done.")
 
     def create_matrices(self ):
 
@@ -548,25 +629,55 @@ class DataManager:
         self.create_train_matrix()
 
         self.create_test_matrix()
-        self.create_test_word_matrix()
+        #self.create_test_word_matrix_by_playlist_neighbors()
+        self.create_test_word_matrix_by_track_index()
         self.create_test_top_track_matrix()
 
         if self.CHALLENGE_FILE is not None:
             self.create_challenge_matrix()
-            self.create_challenge_word_matrix()
+            #self.create_challenge_word_matrix_by_playlist_neighbors()
+            self.create_challenge_word_matrix_by_track_index()
             self.create_challenge_top_track_matrix()
 
 
 # END OF CLASS
 
+def calculate_track_priors(path, pickle_file):
+
+
+    prefix = "spotify:track:"
+    playlist_count = 0
+    track_prior = defaultdict(float)
+
+    for file in os.listdir(path):
+        print(file)
+        data = json.load(open(path + file))
+        for playlist in data['playlists']:
+            playlist_count += 1
+            for track in playlist['tracks']:
+                track_uri = track['track_uri']
+                track_uri = track_uri[len(prefix):]
+                track_prior[track_uri] += 1.0
+
+    for k in track_prior.keys():
+        track_prior[k] /= playlist_count
+    joblib.dump(track_prior, pickle_file)
+    return track_prior
+
+
+
 
 def load_data(train_size=10000, test_size=2000, load_challenge=False, create_matrices=False, generate_data=False,
-              create_pickle_file=True):
+              create_pickle_file=True, mode="ltc", min_track_prior= 0.0):
 
     """ Fixed Path Names """
     data_folder = os.path.join(os.getcwd(), 'data/mpd.v1/data/')
     challenge_file = os.path.join(os.getcwd(), 'data/challenge.v1/challenge_set.json')
     pickle_folder = os.path.join(os.getcwd(), 'data/pickles/')
+
+
+
+
 
     c_str = ""
     c_file = None
@@ -585,9 +696,18 @@ def load_data(train_size=10000, test_size=2000, load_challenge=False, create_mat
     pickle_exists = os.path.isfile(pickle_file)
 
     if generate_data or not pickle_exists:
-        d = DataManager(data_folder, train_size=train_size, test_size=test_size, challenge_file=c_file)
+        track_prior_pickle_file = pickle_folder + "track_prior.pickle"
+        if os.path.isfile(track_prior_pickle_file):
+            print("Loading Track Priors")
+            track_prior = joblib.load(track_prior_pickle_file)
+        else:
+            print("Calculating Track Priors")
+            track_prior = calculate_track_priors(data_folder, track_prior_pickle_file)
+
+        d = DataManager(data_folder, track_prior, train_size=train_size, test_size=test_size, challenge_file=c_file,
+                        min_track_prior=min_track_prior)
         print("Load Playlist Data")
-        d.load_playlist_data()
+        d.load_playlist_data(mode=mode)
         d.calculate_popularity()
         if load_challenge:
             print("Load Challenge Set Data")
@@ -605,19 +725,22 @@ def load_data(train_size=10000, test_size=2000, load_challenge=False, create_mat
     return d
 
 
+
 if __name__ == '__main__':
 
     """ Parameters for Loading Data """
     generate_data_arg = True      # True - load data for given parameter settings
     #                               False - only load data if pickle file doesn't already exist
-    train_size_arg = 10000        # number of playlists for training
+    train_size_arg = 1000        # number of playlists for training
     test_size_arg = 1000          # number of playlists for testing
-    load_challenge_arg = True    # loads challenge data when creating a submission to contest
+    load_challenge_arg = False    # loads challenge data when creating a submission to contest
     create_matrices_arg = True    # creates numpy matrices for train, test, and (possibly) challenge data
     create_pickle_file_arg = True #takes time to create pickle file
+    text_index_mode_arg = "ntc"
+    min_track_prior_arg = 0.0002
 
     data_in = load_data(train_size_arg, test_size_arg, load_challenge_arg, create_matrices_arg,
-                        generate_data_arg, create_pickle_file_arg)
+                        generate_data_arg, create_pickle_file_arg, text_index_mode_arg, min_track_prior_arg)
 
 
     pass
