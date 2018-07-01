@@ -41,7 +41,7 @@ def show_playlist(pid):
         low = 1000 * int(pid / 1000)
         high = low + 999
         offset = pid - low
-        path = "../data/mpd.slice." + str(low) + '-' + str(high) + ".json"
+        path = "data/mpd.v1/data/mpd.slice." + str(low) + '-' + str(high) + ".json"
         if not path in cache:
             f = codecs.open(path, 'r', 'utf-8')
             js = f.read()

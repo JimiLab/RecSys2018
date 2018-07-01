@@ -1,6 +1,6 @@
 import math
 from rank_metrics import ndcg_at_k
-
+import numpy as np
 
 def precision_and_recall_at_k(ground_truth, prediction, k=-1):
     """
@@ -41,5 +41,35 @@ def song_clicks_metric(ranking):
     return 51
 
 
-def ncdg(ranking, k):
-    return ndcg_at_k(ranking, k, 0)
+
+    @staticmethod
+    def print_subtest_results(sub_test_names, metric_names, results):
+        (num_subtest, num_metrics) = results.shape
+        print('{0: <15}'.format("Subtest"),"\t", end="")
+        for i in range(num_metrics):
+            print(metric_names[i], "\t", end="")
+        print()
+
+        for st in range(num_subtest):
+            print('{0: <15}'.format(sub_test_names[st]), "\t", end="")
+            for m in range(num_metrics):
+                print(np.round(results[st][m],decimals=3), "\t", end="")
+            print()
+
+    @staticmethod
+    def print_overall_results(metric_names, results):
+
+        print('{0: <15}'.format(""),"\t", end="")
+        for i in range(len(metric_names)):
+            print(metric_names[i], "\t", end="")
+        print()
+
+
+        print('{0: <15}'.format("Overall"),"\t", end="")
+        for m in range(len(metric_names)):
+            print(np.round(results[m],decimals=3), "\t", end="")
+        print()
+
+
+if __name__ == '__main__':
+    pass
