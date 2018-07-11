@@ -1,6 +1,6 @@
 
 from sklearn.decomposition import TruncatedSVD
-from predict import Predict
+from predict import *
 from DataManager import load_data
 import math
 import numpy as np
@@ -19,7 +19,7 @@ import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
 
-class PredictWithLSA(Predict):
+class PredictWithLSA:
 
     def __init__(self, data, num_components=64, lsa_min_track_prior=0.0):
         """
@@ -31,6 +31,7 @@ class PredictWithLSA(Predict):
         """
         # Call init on super class
         Predict.__init__(self)
+
         self.d = data  # DataManager Object
         self.num_components = num_components
         self.num_predictions = 500
@@ -61,6 +62,7 @@ class PredictWithLSA(Predict):
         embedded_test_vecs = self.svd.transform(X[:, self.lsa_track_mask])
         lsa_vecs_hat_compressed = self.svd.inverse_transform(embedded_test_vecs)
 
+
         if z_score:
             lsa_vecs_hat_compressed = zscore(lsa_vecs_hat_compressed, axis=1, ddof=1)
             np.nan_to_num(lsa_vecs_hat_compressed, copy=False)
@@ -79,16 +81,21 @@ class PredictWithLSA(Predict):
 
         test_rank = np.argsort(-1 * test_vecs_hat, axis=1)
 
+
         if random_baseline:  # Change to True for Random Baseline
             np.random.shuffle(test_rank.T)
 
         return test_rank[:, 0:self.num_predictions]
 
+
     def predict_from_words(self, mat):
+
 
         test_rank = np.argsort(-1 * mat.todense(), axis=1)
 
+
         return test_rank[:, 0:self.num_predictions]
+
 
     def predict_playlists(self, weights, z_score=False, random_baseline=False):
 
